@@ -31,7 +31,9 @@ if #arg < 2 then
    io.stderr:write('Usage (Batch mode)      : th extract-features.lua [MODEL] [BATCH_SIZE] [DIRECTORY_CONTAINING_IMAGES]  \n')
    os.exit(1)
 end
-
+train_dir = '../../cvpr-traffic/train'
+test_dir = '../../cvpr-traffic/test'
+train_feats_file = '../../cvpr-traffic/train'
 
 -- get the list of files
 local list_of_filenames = {}
@@ -93,42 +95,58 @@ local transform = t.Compose{
    t.CenterCrop(224),
 }
 
+local Features = assert(io.open("./test_feats.csv", "w"))
+local train_feats = assert(io.open("./train_feats.csv", "w"))
 local features
-
-for i=1,number_of_files,batch_size do
-    local img_batch = torch.FloatTensor(batch_size, 3, 224, 224) -- batch numbers are the 3 channels and size of transform 
-
-    -- preprocess the images for the batch
-    local image_count = 0
-    for j=1,batch_size do 
-        img_name = list_of_filenames[i+j-1] 
-
-        if img_name  ~= nil then
-            image_count = image_count + 1
-            local img = image.load(img_name, 3, 'float')
-            img = transform(img)
-            img_batch[{j, {}, {}, {} }] = img
-        end
-    end
-
-    -- if this is last batch it may not be the same size, so check that
-    if image_count ~= batch_size then
-        img_batch = img_batch[{{1,image_count}, {}, {}, {} } ]
-    end
-
-   -- Get the output of the layer before the (removed) fully connected layer
-   local output = model:forward(img_batch:cuda()):squeeze(1)
+batch_size = 1
 
 
-   -- this is necesary because the model outputs different dimension based on size of input
-   if output:nDimension() == 1 then output = torch.reshape(output, 1, output:size(1)) end 
-
-   if not features then
-       features = torch.FloatTensor(number_of_files, output:size(2)):zero()
-   end
-       features[{ {i, i-1+image_count}, {}  } ]:copy(output)
-
+for dir in path.dir(train_dir) do
+	if dir ~= '.' and dir ~= '..' then
+		for file in paths.files(paths.concat(train_dir, dir)) do
+			if file ~= '.' and file ~= '..' then
+				local img_batch = torch.FloatTensor(batch_size, 3, 224, 224)
+				train_file_path = paths.concat(paths.concat(train_dir, dir), file)
+				--print(train_file_path)
+				local img = image.load(train_file_path, 3, 'float')
+				img = transform(img)
+				img_batch[{1, {}, {}, {} }] = img
+				local output = model:forward(img_batch:cuda()):squeeze(1)
+				if output:nDimension() == 1 then 
+					output = torch.reshape(output, 1, output:size(1)) 
+				end
+				--print(output)
+				train_feats:write(train_file_path)
+				train_feats:write(",")
+				for i=1, output:size(2) do
+					train_feats:write(output[1][i])
+					train_feats:write(",")
+				end
+				train_feats:write("\n")
+			end
+		end
+	end
 end
+print("Training feats written")
+for file in paths.files(test_dir) do
+	if file ~= '.' and file ~= '..' then
+		local img_batch = torch.FloatTensor(batch_size, 3, 224, 224)
+		test_file_path = paths.concat(test_dir, file)
+		local img = image.load(test_file_path, 3, 'float')
+		img = transform(img)
+	        img_batch[{1, {}, {}, {} }] = img
+		local output = model:forward(img_batch:cuda()):squeeze(1)
+		if output:nDimension() == 1 then output = torch.reshape(output, 1, output:size(1)) end 
+		--print(output)
+		Features:write(test_file_path)
+		Features:write(",")
+		for i=1,output:size(2) do
+			Features:write(output[1][i])
+			Features:write(",")
+		end
+		Features:write("\n")
+	end
+end
+	
 
-torch.save('features.t7', {features=features, image_list=list_of_filenames})
 print('saved features to features.t7')

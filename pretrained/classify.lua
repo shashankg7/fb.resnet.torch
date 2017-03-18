@@ -15,20 +15,25 @@ require 'paths'
 require 'cudnn'
 require 'cunn'
 require 'image'
+require 'io'
+
 
 local t = require '../datasets/transforms'
-local imagenetLabel = require './imagenet'
+local imagenetLabel = require './traffic'
 
-if #arg < 2 then
+
+if #arg < 1 then
    io.stderr:write('Usage: th classify.lua [MODEL] [FILE]...\n')
    os.exit(1)
 end
-for _, f in ipairs(arg) do
-   if not paths.filep(f) then
-      io.stderr:write('file not found: ' .. f .. '\n')
-      os.exit(1)
-   end
-end
+--for _, f in ipairs(arg) do
+--   if not paths.filep(f) then
+--      io.stderr:write('file not found: ' .. f .. '\n')
+--      os.exit(1)
+--   end
+--end
+
+test_dir = '../../cvpr-traffic/test'
 
 
 -- Load the model
@@ -53,28 +58,34 @@ local transform = t.Compose{
    t.CenterCrop(224),
 }
 
-local N = 5
+local N = 1
+f = io.open('results.csv', 'w')
 
-for i=2,#arg do
-   -- load the image as a RGB float tensor with values 0..1
-   local img = image.load(arg[i], 3, 'float')
-   local name = arg[i]:match( "([^/]+)$" )
 
-   -- Scale, normalize, and crop the image
-   img = transform(img)
+for file in paths.files(test_dir) do
+	if file ~= '.' and file ~='..' then
+		test_file_path = paths.concat(test_dir, file)
+   	-- load the image as a RGB float tensor with values 0..1
+		local img = image.load(test_file_path, 3, 'float')
+   		local name = file:match( "([^/]+)$" )
+		local name = name:match("(.+)%..+")
 
-   -- View as mini-batch of size 1
-   local batch = img:view(1, table.unpack(img:size():totable()))
+   	-- Scale, normalize, and crop the image
+		img = transform(img)
 
-   -- Get the output of the softmax
-   local output = model:forward(batch:cuda()):squeeze()
+	   -- View as mini-batch of size 1
+		local batch = img:view(1, table.unpack(img:size():totable()))
 
-   -- Get the top 5 class indexes and probabilities
-   local probs, indexes = output:topk(N, true, true)
-   print('Classes for', arg[i])
-   for n=1,N do
-     print(probs[n], imagenetLabel[indexes[n]])
-   end
-   print('')
+	   -- Get the output of the softmax
+		local output = model:forward(batch:cuda()):squeeze()
 
+	   -- Get the top 5 class indexes and probabilities
+		local probs, indexes = output:topk(N, true, true)
+		--for n=1,N do
+		--	print(probs[n], imagenetLabel[indexes[n]])
+		--end
+		file_text = name .. ',' ..  imagenetLabel[indexes[1]] .. '\n'
+		--print(file_text)
+		f:write(file_text)
+	end
 end
